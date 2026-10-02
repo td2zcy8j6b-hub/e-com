@@ -1,0 +1,20 @@
+{
+  "name": "e-com",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dropshipping storefront with two products, Stripe checkout and an order-fulfillment admin",
+  "main": "server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "stripe": "^22.6.2"
+  }
+}

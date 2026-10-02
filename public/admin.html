@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin – Orders</title>
+  <meta name="robots" content="noindex">
+  <meta name="description" content="Trending gadgets shipped free worldwide, with a 30-day money-back guarantee.">
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="site-header"></div>
+  <main>
+    <div class="container page">
+      <h1>Order fulfilment</h1>
+      <form id="login" class="panel" style="max-width:420px">
+        <label for="password">Admin password</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <button class="btn" style="margin-top:16px" type="submit">Sign in</button>
+        <p class="error" id="login-error" role="alert"></p>
+      </form>
+      <div id="dashboard" hidden>
+        <div class="stat-row" id="stats"></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+          <label for="filter" style="margin:0">Show</label>
+          <select id="filter" style="width:auto">
+            <option value="todo">Needs action (paid / ordered)</option>
+            <option value="all">All orders</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" id="refresh" type="button">Refresh</button>
+          <button class="btn btn-ghost btn-sm" id="export" type="button">Export CSV</button>
+          <button class="btn btn-ghost btn-sm" id="logout" type="button">Sign out</button>
+        </div>
+        <div class="panel table-wrap"><table>
+          <thead><tr><th>Order</th><th>Customer / ship to</th><th>Items → supplier</th><th>Money</th><th>Fulfilment</th></tr></thead>
+          <tbody id="orders"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </main>
+  <div id="site-footer"></div>
+  <script src="/js/common.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img" aria-label="Portable blender filled with a berry smoothie">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fdf1e7"/><stop offset="1" stop-color="#f6dccb"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".55"/><stop offset=".3" stop-color="#ffffff" stop-opacity=".15"/><stop offset="1" stop-color="#ffffff" stop-opacity=".4"/>
+    </linearGradient>
+    <linearGradient id="smoothie" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f06292"/><stop offset="1" stop-color="#c2185b"/>
+    </linearGradient>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7fa88a"/><stop offset=".5" stop-color="#9cc3a6"/><stop offset="1" stop-color="#6d9677"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <circle cx="470" cy="140" r="90" fill="#ffd6a5" opacity=".6"/>
+  <circle cx="120" cy="470" r="70" fill="#cde8d4" opacity=".8"/>
+  <ellipse cx="300" cy="545" rx="120" ry="16" fill="#000" opacity=".15"/>
+  <!-- lid + handle -->
+  <rect x="222" y="92" width="156" height="42" rx="14" fill="url(#base)"/>
+  <path d="M378 104 h28 a18 18 0 0 1 18 18 v0 a18 18 0 0 1 -18 18 h-28" fill="none" stroke="#6d9677" stroke-width="12" stroke-linecap="round"/>
+  <!-- jar -->
+  <path d="M230 134 L370 134 L360 410 L240 410 Z" fill="#fff" opacity=".35" stroke="#e0c8bb" stroke-width="3"/>
+  <path d="M236 210 L364 210 L360 410 L240 410 Z" fill="url(#smoothie)"/>
+  <g fill="#8e0e3f" opacity=".5"><circle cx="270" cy="260" r="6"/><circle cx="320" cy="300" r="5"/><circle cx="290" cy="350" r="7"/><circle cx="335" cy="235" r="4"/></g>
+  <g fill="#fff" opacity=".6"><circle cx="300" cy="240" r="5"/><circle cx="260" cy="320" r="4"/><circle cx="340" cy="360" r="3"/></g>
+  <path d="M230 134 L370 134 L360 410 L240 410 Z" fill="url(#glass)"/>
+  <rect x="250" y="150" width="10" height="240" rx="5" fill="#fff" opacity=".55"/>
+  <!-- base -->
+  <rect x="232" y="410" width="136" height="120" rx="22" fill="url(#base)"/>
+  <circle cx="300" cy="470" r="18" fill="#fff" opacity=".9"/>
+  <circle cx="300" cy="470" r="8" fill="#6d9677"/>
+  <rect x="282" y="505" width="36" height="6" rx="3" fill="#4f7a5a"/>
+  <!-- fruit -->
+  <circle cx="455" cy="480" r="30" fill="#e53935"/><path d="M455 452 q8 -14 20 -12" stroke="#43a047" stroke-width="5" fill="none"/>
+  <circle cx="500" cy="505" r="20" fill="#5c6bc0"/><circle cx="170" cy="505" r="24" fill="#ffb300"/>
+</svg>

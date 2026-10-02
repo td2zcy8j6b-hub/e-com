@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Track your order – Nova &amp; Nest</title>
+  <meta name="description" content="Trending gadgets shipped free worldwide, with a 30-day money-back guarantee.">
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="site-header"></div>
+  <main>
+    <div class="container page" style="max-width:720px">
+      <h1>Track your order</h1>
+      <form id="track-form" class="panel">
+        <label for="orderId">Order number</label>
+        <input id="orderId" name="orderId" placeholder="NN-XXXXXXXX" required>
+        <label for="trackEmail">Email used at checkout</label>
+        <input id="trackEmail" name="email" type="email" required>
+        <button class="btn" style="margin-top:16px" type="submit">Find order</button>
+        <p class="error" id="track-error" role="alert"></p>
+      </form>
+      <div id="track-result" style="margin-top:24px"></div>
+    </div>
+  </main>
+  <div id="site-footer"></div>
+  <script src="/js/common.js"></script>
+  <script src="/js/order-view.js"></script>
+  <script src="/js/track.js"></script>
+</body>
+</html>
