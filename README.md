@@ -63,7 +63,7 @@ Run the tests with `npm test`.
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/td2zcy8j6b-hub/e-com)
 
 1. Click the button above. Sign up for Render with your GitHub account and allow it to access the `e-com` repository.
-2. Render reads `render.yaml` and shows one web service with a 1 GB disk. Click **Apply**. The Starter plan costs about $7/month. A paid plan is needed because the free plan has no disk, and without one every order would be lost whenever the server restarts.
+2. Render reads `render.yaml` and shows one web service on the **free plan**. Click **Apply**. Render may still ask for a card to verify your account, but the free plan isn't charged.
 3. Wait a few minutes for the first deploy. Your store is then live at `https://nova-and-nest.onrender.com` (or a similar address shown in the dashboard).
 4. Open the service's **Environment** tab to:
    - see the generated `ADMIN_PASSWORD` for `/admin.html`,
@@ -72,6 +72,8 @@ Run the tests with `npm test`.
 5. Optional: add your own domain under **Settings → Custom Domains**.
 
 Every push to `main` redeploys automatically.
+
+**The free plan is for previewing only.** It has no persistent disk, so every order is erased whenever the server restarts or redeploys. It also sleeps after 15 minutes without visitors, and the next visitor waits about a minute for it to wake. Before taking real orders, upgrade: in `render.yaml` change `plan: free` to `plan: starter` (about $7/month) and uncomment the `disk:` block, then push to `main`.
 
 Other hosts work too: it's a single Node process (Node 20+) with no build step. Give it a persistent disk mounted at `data/` for `orders.json`.
 
