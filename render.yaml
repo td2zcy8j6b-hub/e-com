@@ -1,0 +1,26 @@
+# Render Blueprint: one-click hosting for the store.
+# Deploy with the "Deploy to Render" button in README.md.
+services:
+  - type: web
+    name: nova-and-nest
+    runtime: node
+    # A persistent disk (needed so orders survive restarts and redeploys)
+    # is only available on paid plans; starter is the cheapest.
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/config
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: STORE_NAME
+        value: Nova & Nest
+      - key: SUPPORT_EMAIL
+        value: support@example.com
+      # Random password for /admin.html; view it under the service's Environment tab.
+      - key: ADMIN_PASSWORD
+        generateValue: true
+    disk:
+      name: orders
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
