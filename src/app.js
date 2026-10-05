@@ -12,7 +12,8 @@ function createApp({
   stripe = null,
   stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET,
   adminPassword = process.env.ADMIN_PASSWORD,
-  baseUrl = process.env.BASE_URL,
+  // Render sets RENDER_EXTERNAL_URL automatically, so BASE_URL is optional there.
+  baseUrl = process.env.BASE_URL || process.env.RENDER_EXTERNAL_URL,
 } = {}) {
   const app = express();
   const store = new OrderStore(ordersFile);

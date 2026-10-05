@@ -58,9 +58,22 @@ Run the tests with `npm test`.
 2. For each **paid** order, place the same items with your supplier using the SKU shown, shipping to the customer's address. Enter the supplier order number and click Save. The status becomes *ordered from supplier*.
 3. When the supplier sends tracking, enter the carrier and tracking number and click Save. The status becomes *shipped*, and the customer can see the tracking on `/track.html`.
 
-## Deploying
+## Put it online (Render)
 
-This is a single Node process (Node 20+) with no build step. It runs on Render, Railway, Fly.io or any VPS. Orders are stored in `data/orders.json`, so give the host a **persistent disk** mounted at `data/`, or move the store in `src/orders.js` to a database once order volume grows.
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/td2zcy8j6b-hub/e-com)
+
+1. Click the button above. Sign up for Render with your GitHub account and allow it to access the `e-com` repository.
+2. Render reads `render.yaml` and shows one web service with a 1 GB disk. Click **Apply**. The Starter plan costs about $7/month. A paid plan is needed because the free plan has no disk, and without one every order would be lost whenever the server restarts.
+3. Wait a few minutes for the first deploy. Your store is then live at `https://nova-and-nest.onrender.com` (or a similar address shown in the dashboard).
+4. Open the service's **Environment** tab to:
+   - see the generated `ADMIN_PASSWORD` for `/admin.html`,
+   - set `SUPPORT_EMAIL` to your real address,
+   - add `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` when you're ready to take real payments (until then it runs in demo mode). Use the store address from step 3 for the Stripe webhook URL: `https://<your-address>/api/webhooks/stripe`.
+5. Optional: add your own domain under **Settings → Custom Domains**.
+
+Every push to `main` redeploys automatically.
+
+Other hosts work too: it's a single Node process (Node 20+) with no build step. Give it a persistent disk mounted at `data/` for `orders.json`.
 
 ## Project layout
 
