@@ -117,5 +117,104 @@ async function renderChrome() {
   updateCartCount();
 }
 
+// ---- Slide-out cart drawer ----
+let productsCache = null;
+function getProducts() {
+  if (!productsCache) productsCache = api('/api/products').catch((err) => { productsCache = null; throw err; });
+  return productsCache;
+}
+
+let drawer = null;
+function buildDrawer() {
+  if (drawer) return drawer;
+  const body = el('div', { class: 'drawer-body' });
+  const foot = el('div', { class: 'drawer-foot' });
+  const panel = el('aside', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your cart', tabindex: '-1' },
+    el('div', { class: 'drawer-head' },
+      el('h2', {}, 'Your cart'),
+      el('button', { type: 'button', class: 'drawer-close', 'aria-label': 'Close cart', onclick: closeCart }, '×')),
+    body, foot);
+  document.body.append(el('div', { class: 'drawer-backdrop', onclick: closeCart }), panel);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) closeCart(); });
+  drawer = { panel, body, foot };
+  return drawer;
+}
+
+async function renderDrawer() {
+  const { body, foot } = buildDrawer();
+  const items = Cart.read();
+  if (!items.length) {
+    body.replaceChildren(el('div', { class: 'drawer-empty' },
+      el('p', { class: 'muted' }, 'Your cart is empty.'),
+      el('a', { class: 'btn', href: '/#shop', onclick: closeCart }, 'Start shopping')));
+    foot.replaceChildren();
+    return;
+  }
+  let cfg, products, quote;
+  try {
+    [cfg, products, quote] = await Promise.all([
+      getConfig(), getProducts(),
+      api('/api/cart/quote', { method: 'POST', body: JSON.stringify({ items }) }),
+    ]);
+  } catch (err) {
+    body.replaceChildren(el('p', { class: 'error' }, err.message), el('a', { class: 'btn btn-block', href: '/cart.html' }, 'Open cart'));
+    foot.replaceChildren();
+    return;
+  }
+  const imageBySlug = Object.fromEntries(products.map((p) => [p.slug, p.image]));
+  const change = (variantId, quantity) => { Cart.setQty(variantId, quantity); renderDrawer(); };
+  body.replaceChildren(...quote.lines.map((l) => el('div', { class: 'line' },
+    el('img', { src: imageBySlug[l.slug], alt: '', width: 64, height: 64 }),
+    el('div', {},
+      el('strong', {}, l.productName),
+      el('div', { class: 'small muted' }, l.variantName, l.percentOff ? ` · ${l.percentOff}% off` : ''),
+      el('div', { style: 'display:flex;gap:12px;align-items:center;margin-top:6px' },
+        el('div', { class: 'qty' },
+          el('button', { type: 'button', 'aria-label': 'Decrease quantity', onclick: () => change(l.variantId, l.quantity - 1) }, '−'),
+          el('span', {}, l.quantity),
+          el('button', { type: 'button', 'aria-label': 'Increase quantity', disabled: l.quantity >= 10, onclick: () => change(l.variantId, l.quantity + 1) }, '+')),
+        el('button', { type: 'button', class: 'link-btn', onclick: () => change(l.variantId, 0) }, 'Remove'))),
+    el('div', { style: 'text-align:right' },
+      el('strong', {}, money(l.lineTotal - l.discount)),
+      l.discount ? el('div', { class: 'small compare' }, money(l.lineTotal)) : ''),
+  )));
+
+  const merchandise = quote.subtotal - quote.discount;
+  const remaining = cfg.freeShippingThreshold - merchandise;
+  const pct = Math.min(100, (merchandise / cfg.freeShippingThreshold) * 100);
+  foot.replaceChildren(
+    el('div', { class: 'small' }, remaining > 0 ? `You're ${money(remaining)} away from free shipping!` : '🎉 You’ve unlocked free shipping!'),
+    el('div', { class: 'progress' }, el('div', { style: `width:${pct}%` })),
+    quote.discount ? el('div', { class: 'summary-row discount small' }, el('span', {}, 'Bundle savings'), el('span', {}, `−${money(quote.discount)}`)) : '',
+    el('div', { class: 'summary-row small' }, el('span', {}, 'Shipping'), el('span', {}, quote.shipping ? money(quote.shipping) : 'FREE')),
+    el('div', { class: 'summary-row total' }, el('span', {}, 'Total'), el('span', {}, money(quote.total))),
+    el('a', { class: 'btn btn-block', href: '/checkout.html' }, 'Checkout'),
+    el('a', { class: 'btn btn-ghost btn-block', href: '/cart.html' }, 'View cart'),
+  );
+}
+
+let lastFocus = null;
+function openCart() {
+  const { panel } = buildDrawer();
+  lastFocus = document.activeElement;
+  document.body.classList.add('drawer-open');
+  renderDrawer();
+  panel.focus();
+}
+function closeCart() {
+  document.body.classList.remove('drawer-open');
+  if (lastFocus && lastFocus.focus) lastFocus.focus();
+}
+
+// The header cart link opens the drawer (except on the cart page itself,
+// or when the shopper asks for a new tab).
+document.addEventListener('click', (e) => {
+  const link = e.target.closest && e.target.closest('.cart-link');
+  if (!link || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+  if (location.pathname === '/cart.html' || location.pathname === '/cart') return;
+  e.preventDefault();
+  openCart();
+});
+
 window.addEventListener('storage', (e) => { if (e.key === CART_KEY) updateCartCount(); });
 document.addEventListener('DOMContentLoaded', renderChrome);
