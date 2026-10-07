@@ -21,6 +21,16 @@ services:
       # Random password for /admin.html; view it under the service's Environment tab.
       - key: ADMIN_PASSWORD
         generateValue: true
+      # Automation secrets: Render asks for these when you apply the Blueprint.
+      # Leave any of them blank to switch that part off (see README "Automation").
+      - key: CJ_API_KEY
+        sync: false
+      - key: SMTP_URL
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: OWNER_EMAIL
+        sync: false
     # Paid plans only:
     # disk:
     #   name: orders

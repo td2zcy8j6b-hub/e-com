@@ -170,3 +170,96 @@ test('concurrent orders are all persisted', async () => {
     assert.strictEqual(list.body.length, 15);
   });
 });
+
+test('stripe refunds, expired sessions and failed payments update the order', async () => {
+  const stripe = fakeStripe();
+  await withServer({ stripe, stripeWebhookSecret: 'whsec' }, async (call) => {
+    const hook = (type, object) => call('POST', '/api/webhooks/stripe', JSON.stringify({ type, data: { object } }), { 'stripe-signature': 'valid' });
+    const items = [{ variantId: 'pb-sage', quantity: 1 }];
+    const a = (await call('POST', '/api/checkout', { items, customer })).body.orderId;
+    const b = (await call('POST', '/api/checkout', { items, customer })).body.orderId;
+    const c = (await call('POST', '/api/checkout', { items, customer })).body.orderId;
+    const [sa, sb, sc] = Object.values(stripe.sessions);
+
+    sa.payment_status = 'paid';
+    sa.payment_intent = 'pi_a';
+    await hook('checkout.session.completed', sa);
+    // A partial refund leaves the order alone; a full refund marks it refunded.
+    await hook('charge.refunded', { payment_intent: 'pi_a', refunded: false });
+    assert.strictEqual((await call('GET', `/api/orders/${a}?email=buyer@example.com`)).body.status, 'paid');
+    await hook('charge.refunded', { payment_intent: 'pi_a', refunded: true });
+    assert.strictEqual((await call('GET', `/api/orders/${a}?email=buyer@example.com`)).body.status, 'refunded');
+
+    await hook('checkout.session.expired', sb);
+    await hook('checkout.session.async_payment_failed', sc);
+    const auth = { Authorization: 'Bearer secret' };
+    const all = (await call('GET', '/api/admin/orders', undefined, auth)).body;
+    const byId = Object.fromEntries(all.map((o) => [o.id, o]));
+    assert.strictEqual(byId[b].status, 'cancelled');
+    assert.strictEqual(byId[b].cancelReason, 'payment_not_completed');
+    assert.strictEqual(byId[c].cancelReason, 'payment_failed');
+    assert.ok(byId[a].refundedAt && byId[b].cancelledAt);
+
+    // A paid order is never cancelled by a late "expired" event.
+    await hook('checkout.session.expired', sa);
+    assert.strictEqual((await call('GET', `/api/orders/${a}?email=buyer@example.com`)).body.status, 'refunded');
+  });
+});
+
+test('automation endpoints need the admin password and run automation', async () => {
+  const runs = [];
+  let kicks = 0;
+  const automation = {
+    kick() { kicks += 1; },
+    async run() { runs.push(1); return { submitted: [], errors: [] }; },
+    status() { return { email: false, cj: false, missingCjVariants: ['x'] }; },
+  };
+  await withServer({ automation }, async (call) => {
+    assert.strictEqual((await call('POST', '/api/admin/automation/run')).status, 401);
+    assert.strictEqual((await call('GET', '/api/admin/automation')).status, 401);
+    const auth = { Authorization: 'Bearer secret' };
+    const st = await call('GET', '/api/admin/automation', undefined, auth);
+    assert.deepStrictEqual(st.body, { enabled: true, email: false, cj: false, missingCjVariants: ['x'] });
+    const run = await call('POST', '/api/admin/automation/run', undefined, auth);
+    assert.strictEqual(run.status, 200);
+    assert.strictEqual(runs.length, 1);
+
+    // Paying an order kicks automation so the confirmation goes out right away.
+    await call('POST', '/api/checkout', { items: [{ variantId: 'pb-sage', quantity: 1 }], customer });
+    assert.strictEqual(kicks, 1);
+  });
+  await withServer({}, async (call) => {
+    assert.strictEqual((await call('POST', '/api/admin/automation/run', undefined, { Authorization: 'Bearer secret' })).status, 503);
+  });
+});
+
+test('admin can retry a CJ order and tracking shows as a shipment', async () => {
+  await withServer({}, async (call, app) => {
+    const { body: { orderId } } = await call('POST', '/api/checkout', { items: [{ variantId: 'pb-sage', quantity: 1 }], customer });
+    await app.locals.store.update(orderId, { fulfilment: { provider: 'cj', attempts: 5, gaveUp: true, lastError: 'boom' }, alerts: { supplier_gave_up: 'x', needs_manual: 'y' } });
+    const auth = { Authorization: 'Bearer secret' };
+    const retried = await call('PATCH', `/api/admin/orders/${orderId}`, { retryFulfilment: true }, auth);
+    assert.deepStrictEqual(
+      { attempts: retried.body.fulfilment.attempts, gaveUp: retried.body.fulfilment.gaveUp, lastError: retried.body.fulfilment.lastError },
+      { attempts: 0, gaveUp: false, lastError: null },
+    );
+    assert.deepStrictEqual(retried.body.alerts, { needs_manual: 'y' }, 'a new failure alerts again');
+
+    const shipped = await call('PATCH', `/api/admin/orders/${orderId}`, { status: 'shipped', trackingCarrier: 'USPS', trackingNumber: '9400' }, auth);
+    const firstShippedAt = shipped.body.shippedAt;
+    // Re-saving an already shipped order keeps its shipped time (so no repeat email).
+    const again = await call('PATCH', `/api/admin/orders/${orderId}`, { status: 'shipped', trackingCarrier: 'USPS', trackingNumber: '9400' }, auth);
+    assert.strictEqual(again.body.shippedAt, firstShippedAt);
+
+    const view = await call('GET', `/api/orders/${orderId}?email=buyer@example.com`);
+    assert.deepStrictEqual(view.body.shipments, [{ carrier: 'USPS', trackingNumber: '9400' }]);
+    assert.strictEqual(view.body.fulfilment, undefined, 'supplier details stay private');
+  });
+});
+
+test('products API hides CJ variant ids', async () => {
+  await withServer({}, async (call) => {
+    const { body } = await call('GET', '/api/products');
+    for (const p of body) for (const v of p.variants) assert.strictEqual(v.cjVariantId, undefined);
+  });
+});

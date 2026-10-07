@@ -7,7 +7,7 @@ A complete, self-hosted dropshipping storefront selling two trending products:
 | **AuroraSky Galaxy Projector** | Astronaut, Classic Dome | $34.99 / $29.99 | $11.50 | ~62–67% |
 | **BlendGo Portable Blender** | Sage, Blush, Midnight | $29.99 | $8.70 | ~71% |
 
-\*Placeholder supplier SKUs and costs. Replace them in `src/products.js` with the real ones from your supplier (CJdropshipping, Zendrop, AliExpress, etc.).
+\*Placeholder supplier SKUs and costs. Both products are fulfilled through CJdropshipping. Replace the placeholders in `src/products.js` with your real CJ products, costs and variant ids.
 
 ## Features
 
@@ -24,6 +24,13 @@ A complete, self-hosted dropshipping storefront selling two trending products:
 - Revenue and gross-profit stats
 - Record the supplier order number and the carrier and tracking number. The customer then sees them on the tracking page.
 - Export orders to CSV (for bulk-ordering from a supplier)
+
+**Automation** (see [Automation](#automation))
+- Paid orders are placed with CJdropshipping through its API, ready for you to pay
+- Tracking numbers come back from CJ on their own, and the order is marked shipped
+- Customers get emails when their order is confirmed, shipped, refunded or cancelled
+- Refunds made in Stripe, abandoned checkouts and failed payments update the order
+- You get an alert when something needs you, and a daily summary email
 
 **Safety**
 - Prices are computed only on the server, so a shopper can't change what they pay
@@ -47,16 +54,48 @@ Run the tests with `npm test`.
 
 1. Create a Stripe account and copy your secret key into `STRIPE_SECRET_KEY`.
 2. Set `BASE_URL` to your public URL (for example `https://yourstore.com`).
-3. In Stripe → Developers → Webhooks, add the endpoint `https://yourstore.com/api/webhooks/stripe` with the events `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Put its signing secret in `STRIPE_WEBHOOK_SECRET`.
+3. In Stripe → Developers → Webhooks, add the endpoint `https://yourstore.com/api/webhooks/stripe` with these events. Put its signing secret in `STRIPE_WEBHOOK_SECRET`.
+   - `checkout.session.completed` and `checkout.session.async_payment_succeeded` mark orders paid.
+   - `checkout.session.expired` and `checkout.session.async_payment_failed` cancel unpaid orders.
+   - `charge.refunded` marks an order refunded and emails the customer.
    For local testing: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
 4. Set a strong `ADMIN_PASSWORD`.
 5. Fill in your business details in `public/policies.html` and set `SUPPORT_EMAIL`.
 
-## Daily fulfilment workflow
+## Automation
 
-1. Open `/admin.html`. The default view lists the orders that need action.
-2. For each **paid** order, place the same items with your supplier using the SKU shown, shipping to the customer's address. Enter the supplier order number and click Save. The status becomes *ordered from supplier*.
-3. When the supplier sends tracking, enter the carrier and tracking number and click Save. The status becomes *shipped*, and the customer can see the tracking on `/track.html`.
+Once it is set up, an order runs like this with no admin work:
+
+1. The shopper pays. They get an order confirmation email straight away.
+2. The store creates the matching order at CJdropshipping, shipping to the customer. It is created **unpaid**.
+3. **You pay it in CJ** (My CJ → Orders → Awaiting payment). This is the one manual step, so nothing is spent without you. The daily summary lists every CJ order waiting for payment.
+4. CJ ships it. The store picks up the tracking number, marks the order shipped and emails the customer the tracking link.
+5. If you refund the payment in Stripe, the order is marked refunded and the customer is told.
+
+Automation runs inside the server every 10 minutes, and right after each payment. Each step is safe to repeat, so nothing is ordered or emailed twice.
+
+### Set it up
+
+| What | Where | Without it |
+|---|---|---|
+| `CJ_API_KEY` | CJ → My CJ → Authorization → API | Orders aren't sent to CJ. You get an email for each order to place by hand. |
+| CJ variant ids | `cjVariantId` on each variant in `src/products.js`. It is CJ's "vid", shown on the product in My CJ → Products. | That variant's orders are left for you, with an alert. |
+| `SMTP_URL` and `EMAIL_FROM` | Your email provider's SMTP settings. Gmail needs an app password. | Emails are only written to the server log. |
+| `OWNER_EMAIL` | Your own address | No alerts or daily summary. |
+| `STORE_URL` and `STORE_ADMIN_PASSWORD` | GitHub repository → Settings → Secrets and variables → Actions | The server still runs automation itself, but not while Render's free plan has it asleep. |
+| Stripe webhook events | See [Go live with Stripe](#go-live-with-stripe) | Refunds and abandoned checkouts aren't picked up. |
+
+`CJ_LOGISTIC_NAME` picks CJ's shipping method. The default is `CJPacket Ordinary`. `DIGEST_HOUR` sets when the daily summary is sent, in server time.
+
+The admin page shows what is set up, with a **Run automation now** button. Each order shows its CJ status, any error, and which emails went out. If CJ rejects an order 5 times, automation stops trying and emails you. Fix the cause, then click **Retry CJ order**.
+
+Turning automation on never emails customers about old orders. Only events from the last 3 days send email.
+
+The CJ field names in `src/suppliers/cj.js` follow CJ's API 2.0 documentation. Place one test order and check it appears in CJ before relying on it.
+
+### Doing it by hand
+
+You can still fulfil any order yourself in `/admin.html`. Enter the supplier order number and the order is no longer sent to CJ. Enter a tracking number and the customer gets the shipped email.
 
 ## Put it online (Render)
 
@@ -73,7 +112,7 @@ Run the tests with `npm test`.
 
 Every push to `main` redeploys automatically.
 
-**The free plan is for previewing only.** It has no persistent disk, so every order is erased whenever the server restarts or redeploys. It also sleeps after 15 minutes without visitors, and the next visitor waits about a minute for it to wake. Before taking real orders, upgrade: in `render.yaml` change `plan: free` to `plan: starter` (about $7/month) and uncomment the `disk:` block, then push to `main`.
+**The free plan is for previewing only.** It has no persistent disk, so every order, and automation's record of what it already did, is erased whenever the server restarts or redeploys. It also sleeps after 15 minutes without visitors, and the next visitor waits about a minute for it to wake. Before taking real orders, upgrade: in `render.yaml` change `plan: free` to `plan: starter` (about $7/month) and uncomment the `disk:` block, then push to `main`.
 
 Other hosts work too: it's a single Node process (Node 20+) with no build step. Give it a persistent disk mounted at `data/` for `orders.json`.
 
@@ -82,12 +121,17 @@ Other hosts work too: it's a single Node process (Node 20+) with no build step. 
 ```
 server.js            entry point (wires in Stripe when a key is set)
 src/app.js           Express routes: products, quote, checkout, orders, admin, webhook
+src/automation.js    scheduled back office: CJ orders, tracking, emails, daily summary
+src/suppliers/cj.js  CJdropshipping API client
+src/mailer.js        SMTP sending (log-only when SMTP_URL is unset)
+src/emails.js        customer and owner email templates
 src/products.js      catalog: products, variants, bundles and supplier info
 src/pricing.js       cart pricing: bundle discounts and shipping
 src/orders.js        JSON-file order store with atomic, serialised writes
 src/config.js        store name, shipping rates, delivery times
 public/              storefront pages, CSS, client JS and product images
-test/                node:test suites (pricing and API, with a fake Stripe client)
+test/                node:test suites (pricing, API, automation and CJ, with fake Stripe, CJ and mail)
+.github/workflows/   store-automation.yml triggers automation every 15 minutes
 ```
 
 ## Customising

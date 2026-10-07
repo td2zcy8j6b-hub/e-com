@@ -23,6 +23,75 @@
     loginForm.hidden = true;
     dashboard.hidden = false;
     render();
+    loadAutomation();
+  }
+
+  // ---- Automation panel ----
+  const CJ_STATUS = { awaiting_payment: 'Awaiting your payment in CJ', processing: 'CJ is processing', shipped: 'CJ shipped', delivered: 'Delivered', cancelled: 'Cancelled by CJ' };
+
+  async function loadAutomation() {
+    let a;
+    try { a = await adminApi('/api/admin/automation'); } catch { return; }
+    const checks = document.getElementById('automation-checks');
+    if (!a.enabled) { checks.replaceChildren(el('li', { class: 'off' }, 'Automation is not running on this server.')); return; }
+    const missing = a.missingCjVariants || [];
+    checks.replaceChildren(
+      el('li', { class: a.email ? '' : 'off' }, a.email ? 'Customer emails are sent automatically.' : 'Customer emails are only logged. Set SMTP_URL and EMAIL_FROM to send them.'),
+      el('li', { class: a.ownerEmail ? '' : 'off' }, a.ownerEmail ? 'Alerts and the daily summary go to your inbox.' : 'No owner alerts or daily summary. Set OWNER_EMAIL.'),
+      el('li', { class: a.cj ? '' : 'off' }, a.cj ? 'Paid orders are placed with CJdropshipping automatically.' : 'Orders are not sent to CJdropshipping. Set CJ_API_KEY.'),
+      el('li', { class: missing.length ? 'off' : '' }, missing.length ? `Missing CJ variant ids in src/products.js: ${missing.join(', ')}.` : 'Every product variant is linked to CJ.'),
+    );
+    showLastRun(a.lastRun, a.intervalMinutes);
+  }
+
+  function showLastRun(run, interval) {
+    const parts = [];
+    if (run) {
+      const n = (arr, label) => (arr && arr.length ? `${arr.length} ${label}` : null);
+      const did = [n(run.submitted, 'sent to CJ'), n(run.shipped, 'shipped'), n(run.emails, 'emails'), n(run.expired, 'unpaid cancelled'), n(run.failed, 'CJ failures')].filter(Boolean);
+      parts.push(`Last run ${new Date(run.finishedAt || run.startedAt).toLocaleString()}: ${did.length ? did.join(', ') : 'nothing to do'}.`);
+      if (run.errors && run.errors.length) parts.push(`Problems: ${run.errors.join(' · ')}`);
+    }
+    if (interval) parts.push(`Runs every ${interval} minutes.`);
+    document.getElementById('automation-last').textContent = parts.join(' ');
+  }
+
+  const runBtn = document.getElementById('run-automation');
+  runBtn.addEventListener('click', async () => {
+    runBtn.disabled = true;
+    try {
+      const run = await adminApi('/api/admin/automation/run', { method: 'POST' });
+      showLastRun(run);
+      toast('Automation finished');
+      orders = await adminApi('/api/admin/orders');
+      render();
+    } catch (err) { toast(err.message); }
+    runBtn.disabled = false;
+  });
+
+  function fulfilmentInfo(o) {
+    const f = o.fulfilment || {};
+    const sent = Object.keys(o.emails || {});
+    const info = [];
+    if (f.cjOrderId) info.push(el('div', { class: 'small muted' }, `CJ order ${f.cjOrderId}`));
+    if (f.cjStatus && o.status === 'ordered_from_supplier') info.push(el('span', { class: f.cjStatus === 'cancelled' ? 'flag bad' : 'flag' }, CJ_STATUS[f.cjStatus] || f.cjStatus));
+    if (f.lastError && o.status === 'paid') {
+      info.push(el('div', { class: 'small error', style: 'margin-top:4px' }, f.gaveUp ? `Gave up: ${f.lastError}` : f.lastError));
+      if (f.gaveUp) {
+        const retry = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', style: 'margin-top:4px', onclick: async () => {
+          retry.disabled = true;
+          try {
+            const updated = await adminApi(`/api/admin/orders/${encodeURIComponent(o.id)}`, { method: 'PATCH', body: JSON.stringify({ retryFulfilment: true }) });
+            orders = orders.map((x) => (x.id === updated.id ? updated : x));
+            toast(`Order ${o.id} will be retried`);
+            render();
+          } catch (err) { toast(err.message); retry.disabled = false; }
+        } }, 'Retry CJ order');
+        info.push(retry);
+      }
+    }
+    if (sent.length) info.push(el('div', { class: 'small muted', style: 'margin-top:4px' }, `Emailed: ${sent.join(', ')}`));
+    return info;
   }
 
   function render() {
@@ -68,7 +137,7 @@
 
     return el('tr', {},
       el('td', {}, el('strong', {}, o.id), el('div', { class: 'small muted' }, new Date(o.createdAt).toLocaleString()),
-        el('span', { class: `status ${o.status}` }, o.status.replace(/_/g, ' '))),
+        el('span', { class: `status ${o.status}` }, o.status.replace(/_/g, ' ')), fulfilmentInfo(o)),
       el('td', {}, el('strong', {}, `${c.firstName} ${c.lastName}`), el('div', {}, c.email), c.phone ? el('div', {}, c.phone) : '',
         el('div', { class: 'small muted' }, address.map((a) => el('div', {}, a)))),
       el('td', {}, o.lines.map((l) => el('div', { style: 'margin-bottom:6px' },

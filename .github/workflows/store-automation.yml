@@ -1,0 +1,40 @@
+# Triggers the store's back-office automation every 15 minutes, so supplier
+# orders, tracking updates and customer emails keep flowing even when the
+# server has been asleep (Render's free plan sleeps after 15 idle minutes).
+#
+# Setup: in GitHub → Settings → Secrets and variables → Actions, add
+#   STORE_URL             e.g. https://nova-and-nest.onrender.com
+#   STORE_ADMIN_PASSWORD  the ADMIN_PASSWORD from your host
+# Until both exist this workflow does nothing and still passes.
+name: Store automation
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: store-automation
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run store automation
+        env:
+          STORE_URL: ${{ secrets.STORE_URL }}
+          STORE_ADMIN_PASSWORD: ${{ secrets.STORE_ADMIN_PASSWORD }}
+        run: |
+          if [ -z "$STORE_URL" ] || [ -z "$STORE_ADMIN_PASSWORD" ]; then
+            echo "STORE_URL or STORE_ADMIN_PASSWORD secret not set; skipping."
+            exit 0
+          fi
+          # A sleeping free-plan server can take about a minute to wake up.
+          curl --fail-with-body --silent --show-error --max-time 120 \
+            --retry 3 --retry-delay 20 --retry-all-errors \
+            -X POST "${STORE_URL%/}/api/admin/automation/run" \
+            -H "Authorization: Bearer $STORE_ADMIN_PASSWORD"

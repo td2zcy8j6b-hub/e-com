@@ -1,8 +1,11 @@
 // Product catalog. The server is the only source of truth for prices: the
 // browser sends variant ids and quantities, never amounts.
 //
-// `supplier` is private (never sent to shoppers) and is what the admin uses
-// to place the matching order with the dropshipping supplier.
+// `supplier` and each variant's `cjVariantId` are private (never sent to
+// shoppers). Automation uses them to place the matching order with
+// CJdropshipping. `cjVariantId` is CJ's "vid" for that exact variant: find it
+// in your CJ account under My Products, or via CJ's product API. Orders for a
+// variant with no `cjVariantId` are left for you to place by hand.
 
 const products = [
   {
@@ -25,8 +28,8 @@ const products = [
     rating: 4.8,
     reviewCount: 2143,
     variants: [
-      { id: 'gsp-astronaut', name: 'Astronaut', price: 3499 },
-      { id: 'gsp-dome', name: 'Classic Dome', price: 2999 },
+      { id: 'gsp-astronaut', name: 'Astronaut', price: 3499, cjVariantId: '' },
+      { id: 'gsp-dome', name: 'Classic Dome', price: 2999, cjVariantId: '' },
     ],
     // Quantity breaks ("buy more, save more") apply per product line.
     quantityDiscounts: [
@@ -60,9 +63,9 @@ const products = [
     rating: 4.7,
     reviewCount: 1678,
     variants: [
-      { id: 'pb-sage', name: 'Sage Green', price: 2999 },
-      { id: 'pb-blush', name: 'Blush Pink', price: 2999 },
-      { id: 'pb-midnight', name: 'Midnight Black', price: 2999 },
+      { id: 'pb-sage', name: 'Sage Green', price: 2999, cjVariantId: '' },
+      { id: 'pb-blush', name: 'Blush Pink', price: 2999, cjVariantId: '' },
+      { id: 'pb-midnight', name: 'Midnight Black', price: 2999, cjVariantId: '' },
     ],
     quantityDiscounts: [
       { minQty: 2, percentOff: 10 },
@@ -73,13 +76,13 @@ const products = [
       { author: 'Tom W.', rating: 5, text: 'Bought one, then two more as gifts. Battery lasts forever.' },
       { author: 'Aisha B.', rating: 4, text: 'Handles frozen berries fine, just add enough liquid.' },
     ],
-    supplier: { name: 'Zendrop', sku: 'ZD-BLG-400', unitCost: 870 },
+    supplier: { name: 'CJdropshipping', sku: 'CJ-BLG-400', unitCost: 870 },
   },
 ];
 
 function publicProduct(p) {
-  const { supplier, ...rest } = p;
-  return rest;
+  const { supplier, variants, ...rest } = p;
+  return { ...rest, variants: variants.map(({ cjVariantId, ...v }) => v) };
 }
 
 function findProduct(slug) {
@@ -94,4 +97,14 @@ function findVariant(variantId) {
   return null;
 }
 
-module.exports = { products, publicProduct, findProduct, findVariant };
+// What the supplier charges for these order lines (cents).
+function supplierCostOf(lines) {
+  let cost = 0;
+  for (const l of lines) {
+    const found = findVariant(l.variantId);
+    if (found && found.product.supplier) cost += found.product.supplier.unitCost * l.quantity;
+  }
+  return cost;
+}
+
+module.exports = { products, publicProduct, findProduct, findVariant, supplierCostOf };
