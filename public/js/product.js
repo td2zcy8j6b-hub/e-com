@@ -30,17 +30,23 @@
       );
     }));
 
+  const stickyInfo = el('div');
+  const sticky = el('div', { class: 'sticky-buy', inert: true },
+    stickyInfo, el('button', { class: 'btn', type: 'button', onclick: () => addToCart() }, 'Add to cart'));
+
   function unitAfter(t) { return variant.price - Math.round((variant.price * t.percentOff) / 100); }
 
   function render() {
     variantButtons.forEach((b, i) => b.setAttribute('aria-pressed', String(p.variants[i] === variant)));
     priceEl.replaceChildren(money(variant.price), el('span', { class: 'compare' }, money(p.compareAtPrice)));
+    stickyInfo.replaceChildren(el('strong', {}, p.name), el('span', { class: 'small muted' }, `${variant.name} · ${money(unitAfter(tiers.find((t) => t.minQty === qty)) * qty)}`));
     bundleInputs.forEach(({ input, tier }) => {
       input.closest('.bundle').querySelector('.bundle-price').textContent = money(unitAfter(tier) * tier.minQty);
     });
   }
 
-  const addBtn = el('button', { class: 'btn btn-block', type: 'button', onclick: () => { Cart.add(variant.id, qty); toast(`Added ${qty} × ${p.name} to cart`); } }, 'Add to cart');
+  const addToCart = () => { Cart.add(variant.id, qty); openCart(); };
+  const addBtn = el('button', { class: 'btn btn-block', type: 'button', onclick: addToCart }, 'Add to cart');
   const buyBtn = el('button', { class: 'btn btn-ghost btn-block', type: 'button', style: 'margin-top:10px', onclick: () => { Cart.add(variant.id, qty); location.href = '/checkout.html'; } }, 'Buy it now');
 
   root.replaceChildren(
@@ -72,5 +78,16 @@
         el('div', { class: 'small muted' }, `${r.author} · Verified buyer`))),
     ),
   );
+  document.body.append(sticky);
   render();
+  // Show the sticky bar on phones once the main button has scrolled away.
+  let queued = false;
+  const updateSticky = () => {
+    queued = false;
+    const show = addBtn.getBoundingClientRect().bottom < 0;
+    sticky.classList.toggle('show', show);
+    sticky.inert = !show;
+  };
+  window.addEventListener('scroll', () => { if (!queued) { queued = true; requestAnimationFrame(updateSticky); } }, { passive: true });
+  updateSticky();
 })();
