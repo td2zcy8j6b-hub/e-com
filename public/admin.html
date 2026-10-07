@@ -22,6 +22,14 @@
       </form>
       <div id="dashboard" hidden>
         <div class="stat-row" id="stats"></div>
+        <section class="panel automation-panel" aria-labelledby="automation-title">
+          <div class="automation-head">
+            <h2 id="automation-title">Automation</h2>
+            <button class="btn btn-sm" id="run-automation" type="button">Run automation now</button>
+          </div>
+          <ul class="automation-checks" id="automation-checks"></ul>
+          <p class="small muted" id="automation-last"></p>
+        </section>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
           <label for="filter" style="margin:0">Show</label>
           <select id="filter" style="width:auto">

@@ -2,13 +2,17 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const config = require('./config');
-const { products, publicProduct, findProduct, findVariant } = require('./products');
+const { products, publicProduct, findProduct, findVariant, supplierCostOf } = require('./products');
 const { priceCart, CartError } = require('./pricing');
-const { OrderStore, STATUSES } = require('./orders');
+const { OrderStore, STATUSES, statusPatch } = require('./orders');
 
-// Options let tests inject a temp order file and a fake Stripe client.
+// Options let tests inject a temp order file, a fake Stripe client and automation.
 function createApp({
   ordersFile = path.join(__dirname, '..', 'data', 'orders.json'),
+  store = new OrderStore(ordersFile),
+  // Optional back-office automation (src/automation.js). It is kicked whenever
+  // an order is paid so the confirmation email and supplier order go out quickly.
+  automation = null,
   stripe = null,
   stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET,
   adminPassword = process.env.ADMIN_PASSWORD,
@@ -16,7 +20,6 @@ function createApp({
   baseUrl = process.env.BASE_URL || process.env.RENDER_EXTERNAL_URL,
 } = {}) {
   const app = express();
-  const store = new OrderStore(ordersFile);
   app.locals.store = store;
   app.disable('x-powered-by');
 
@@ -30,8 +33,19 @@ function createApp({
     } catch (err) {
       return res.status(400).send(`Webhook signature verification failed: ${err.message}`);
     }
+    const obj = event.data.object;
     if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
-      await markPaidFromSession(event.data.object);
+      await markPaidFromSession(obj);
+    } else if (event.type === 'checkout.session.expired' || event.type === 'checkout.session.async_payment_failed') {
+      // Shopper abandoned checkout or a delayed payment method failed.
+      const orderId = obj.metadata && obj.metadata.orderId;
+      if (orderId) {
+        await store.update(orderId, (o) => (o.status === 'pending_payment'
+          ? { ...statusPatch('cancelled'), cancelReason: event.type === 'checkout.session.expired' ? 'payment_not_completed' : 'payment_failed' }
+          : {}));
+      }
+    } else if (event.type === 'charge.refunded') {
+      await markRefunded(obj);
     }
     res.json({ received: true });
   });
@@ -41,11 +55,24 @@ function createApp({
   async function markPaidFromSession(session) {
     const orderId = session.metadata && session.metadata.orderId;
     if (!orderId || session.payment_status !== 'paid') return null;
-    return store.update(orderId, (o) =>
-      o.status === 'pending_payment'
-        ? { status: 'paid', paidAt: new Date().toISOString(), payment: { provider: 'stripe', sessionId: session.id, paymentIntent: session.payment_intent } }
-        : {},
-    );
+    let newlyPaid = false;
+    const order = await store.update(orderId, (o) => {
+      if (o.status !== 'pending_payment') return {};
+      newlyPaid = true;
+      return { status: 'paid', paidAt: new Date().toISOString(), payment: { provider: 'stripe', sessionId: session.id, paymentIntent: session.payment_intent } };
+    });
+    if (newlyPaid && automation) automation.kick();
+    return order;
+  }
+
+  // A refund made in the Stripe dashboard marks the order refunded once the
+  // whole charge has been returned. Partial refunds are left to the owner.
+  async function markRefunded(charge) {
+    if (!charge.payment_intent || !charge.refunded) return;
+    const order = (await store.readAll()).find((o) => o.payment && o.payment.paymentIntent === charge.payment_intent);
+    if (!order) return;
+    await store.update(order.id, (o) => (o.status === 'refunded' ? {} : statusPatch('refunded')));
+    if (automation) automation.kick();
   }
 
   // ---- Storefront API ----
@@ -99,6 +126,7 @@ function createApp({
       // Demo mode: no payment provider configured, so the order is accepted
       // immediately. Useful for local testing and store previews.
       const paid = await store.update(order.id, { status: 'paid', paidAt: new Date().toISOString(), payment: { provider: 'demo' } });
+      if (automation) automation.kick();
       return res.json({ orderId: paid.id, redirectUrl: `/success.html?order=${paid.id}&email=${encodeURIComponent(paid.customer.email)}` });
     }
 
@@ -134,7 +162,7 @@ function createApp({
       res.json({ orderId: order.id, redirectUrl: session.url });
     } catch (err) {
       console.error('Stripe checkout failed:', err.message);
-      await store.update(order.id, { status: 'cancelled', cancelReason: 'payment_setup_failed' });
+      await store.update(order.id, { ...statusPatch('cancelled'), cancelReason: 'payment_setup_failed' });
       res.status(502).json({ error: 'Payment provider unavailable. Please try again in a moment.' });
     }
   });
@@ -175,17 +203,44 @@ function createApp({
   });
 
   app.patch('/api/admin/orders/:id', requireAdmin, async (req, res) => {
-    const { status, trackingNumber, trackingCarrier, supplierOrderId, note } = req.body || {};
+    const { status, trackingNumber, trackingCarrier, supplierOrderId, note, retryFulfilment } = req.body || {};
     if (status !== undefined && !STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
-    const patch = {};
-    if (status !== undefined) patch.status = status;
+    const fields = {};
     for (const [key, val] of Object.entries({ trackingNumber, trackingCarrier, supplierOrderId, note })) {
-      if (val !== undefined) patch[key] = String(val).slice(0, 200);
+      if (val !== undefined) fields[key] = String(val).slice(0, 200);
     }
-    if (status === 'shipped') patch.shippedAt = new Date().toISOString();
-    const order = await store.update(req.params.id, patch);
+    const order = await store.update(req.params.id, (o) => {
+      const patch = { ...fields };
+      // Timestamps only change when the status actually changes, so re-saving
+      // an order doesn't re-trigger its emails.
+      if (status !== undefined && status !== o.status) Object.assign(patch, statusPatch(status));
+      if ('trackingNumber' in fields) {
+        patch.shipments = fields.trackingNumber ? [{ carrier: fields.trackingCarrier ?? o.trackingCarrier ?? '', trackingNumber: fields.trackingNumber }] : [];
+      }
+      // Lets automation try CJ again after it gave up.
+      // Its failure alerts are cleared so a new failure is reported again.
+      if (retryFulfilment) {
+        patch.fulfilment = { ...(o.fulfilment || {}), attempts: 0, gaveUp: false, lastError: null, lastAttemptAt: null };
+        const { supplier_failed, supplier_gave_up, ...alerts } = o.alerts || {};
+        patch.alerts = alerts;
+      }
+      return patch;
+    });
     if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (automation) automation.kick();
     res.json(withSupplierInfo(order));
+  });
+
+  // What automation is set up to do. Never returns secrets.
+  app.get('/api/admin/automation', requireAdmin, (req, res) => {
+    if (!automation) return res.json({ enabled: false });
+    res.json({ enabled: true, ...automation.status() });
+  });
+
+  // Runs automation now. Used by the admin button and the scheduled GitHub workflow.
+  app.post('/api/admin/automation/run', requireAdmin, async (req, res) => {
+    if (!automation) return res.status(503).json({ error: 'Automation is not enabled on this server.' });
+    res.json(await automation.run());
   });
 
   app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
@@ -232,18 +287,19 @@ function customerView(o) {
     currency: o.currency,
     trackingNumber: o.trackingNumber || null,
     trackingCarrier: o.trackingCarrier || null,
+    shipments: o.shipments && o.shipments.length
+      ? o.shipments
+      : o.trackingNumber ? [{ carrier: o.trackingCarrier || '', trackingNumber: o.trackingNumber }] : [],
     shipTo: { firstName: o.customer.firstName, city: o.customer.city, country: o.customer.country },
   };
 }
 
 // Admin view: attach supplier SKU + cost so each order can be placed with the supplier.
 function withSupplierInfo(o) {
-  let cost = 0;
+  const cost = supplierCostOf(o.lines);
   const lines = o.lines.map((l) => {
     const found = findVariant(l.variantId);
-    const supplier = found ? found.product.supplier : null;
-    if (supplier) cost += supplier.unitCost * l.quantity;
-    return { ...l, supplier };
+    return { ...l, supplier: found ? found.product.supplier : null };
   });
   return { ...o, lines, supplierCost: cost, grossProfit: o.total - o.shipping - cost };
 }

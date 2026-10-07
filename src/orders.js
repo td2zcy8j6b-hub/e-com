@@ -66,4 +66,12 @@ class OrderStore {
 //                                          \-> refunded / cancelled
 const STATUSES = ['pending_payment', 'paid', 'ordered_from_supplier', 'shipped', 'cancelled', 'refunded'];
 
-module.exports = { OrderStore, STATUSES };
+// A status change plus the matching timestamp (shippedAt, cancelledAt,
+// refundedAt), which automation uses to decide which emails are still due.
+function statusPatch(status, at = new Date()) {
+  const patch = { status };
+  if (['shipped', 'cancelled', 'refunded'].includes(status)) patch[`${status}At`] = at.toISOString();
+  return patch;
+}
+
+module.exports = { OrderStore, STATUSES, statusPatch };
